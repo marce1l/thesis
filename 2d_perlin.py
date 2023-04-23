@@ -2,11 +2,13 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 
+np.random.seed(6187254)
+
 gradX = [[np.random.rand() for i in range(256)] for i in range(256)]
 gradY = [[np.random.rand() for i in range(256)] for i in range(256)]
 
 step  = 0.01
-width = 10000
+width = 1000
 
 def toUnitVector():
     for i in range(256):
@@ -18,57 +20,51 @@ def toUnitVector():
 def perlin(x, y):
     xi = int(x)
     yi = int(y)
-    # m = 1 / step
     
-    # if x % m == 0:
-        # xi = x / m
-    # else:
-        # xi = x / m
-    # if y % m == 0:
-        # yi = y / m
-    # else:
-        # yi = y % m
+    # print("\nx: %s y: %s" % (x,y))
+    # print("xi: %s yi: %s" % (xi,yi))
     
-    P1 = (x * gradX[xi][yi]) + (y * gradY[xi][yi])
-    P2 = (x * gradX[xi+1][yi]) + (y * gradY[xi+1][yi])
-    P3 = (x * gradX[xi][yi-1]) + (y * gradY[xi][yi-1])
-    P4 = (x * gradX[xi+1][yi-1]) + (y * gradY[xi+1][yi-1])
-
-    points = [
-            (xi, yi, P1),
-            (xi+1, yi, P2),
-            (xi, yi-1, P3),
-            (xi+1, yi-1, P4)]
+    xd = x - xi
+    yd = y - yi
     
-    return bilinear_interpolation(x, y, points)
+    # print("xd: %s yd: %s" % (xd,yd))
+    
+    p00 = xd     * gradX[xi][yi]     + yd     * gradY[xi][yi]
+    p01 = (xd-1) * gradX[xi+1][yi]   + yd     * gradY[xi+1][yi]
+    p10 = xd     * gradX[xi][yi+1]   + (yd-1) * gradY[xi][yi+1]
+    p11 = (xd-1) * gradX[xi+1][yi+1] + (yd-1) * gradY[xi+1][yi+1]
 
-def bilinear_interpolation(x, y, points):
-    points = sorted(points)
-    (x1, y1, q11), (_x1, y2, q12), (x2, _y1, q21), (_x2, _y2, q22) = points
+    xf = fade(xd)
+    yf = fade(yd)
+    
+    x1 = interpolation(p00, p10, yf)
+    x2 = interpolation(p01, p11, yf)
+    
+    # print("p00: %s p01: %s p10: %s p11: %s" % (p00, p01, p10, p11))
+    
+    return interpolation(x1, x2, xf)
 
-    if x1 != _x1 or x2 != _x2 or y1 != _y1 or y2 != _y2:
-        raise ValueError('points do not form a rectangle')
-    if not x1 <= x <= x2 or not y1 <= y <= y2:
-        raise ValueError('(x, y) not within the rectangle')
-
-    return (q11 * (x2 - x) * (y2 - y) +
-            q21 * (x - x1) * (y2 - y) +
-            q12 * (x2 - x) * (y - y1) +
-            q22 * (x - x1) * (y - y1)
-           ) / ((x2 - x1) * (y2 - y1) + 0.0)
+def interpolation(a, b, x):
+    return a + x * (b - a)
+    
+def fade(f):
+    return 6 * f**5 - 15 * f**4 + 10 * f**3
 
 def makeNoise():
     toUnitVector()
 
     noise = np.empty((width, width))
     
-    for x in range(width):
-        for y in range(width):
-            noise[x][y] = perlin(x*step, y*step)
+    for y in range(width):
+        for x in range(width):
+            noise[y][x] = perlin(x*step, y*step)
     
     Time = [i for i in range(width)]
     
     plt.plot(Time, noise[0])
+    plt.show()
+    
+    plt.imshow(noise, cmap='gray')
     plt.show()
 
 makeNoise()
