@@ -3,9 +3,9 @@ import matplotlib.pyplot as plt
 import time
 
 # TODO:
+#   -> Stitch together multiple noise's for longer signal (noise[0] + noise[1]....) ((easy))
 #   -> Currently it's only using on row of the gradient vectors (modulo)
 #   -> Performane improvements (ditching for loops)
-#   -> 
 
 class Perlin_2D():
 
@@ -29,12 +29,12 @@ class Perlin_2D():
         p10 = xd     * self.gradX[yi+1][xi]   + (yd-1) * self.gradY[yi+1][xi]
         p11 = (xd-1) * self.gradX[yi+1][xi+1] + (yd-1) * self.gradY[yi+1][xi+1]
 
-        xf = self.fade(xd)
-        yf = self.fade(yd)
+        xf = self.__fade(xd)
+        yf = self.__fade(yd)
         
-        a = self.interpolate(p00, p10, yf)
-        b = self.interpolate(p01, p11, yf)
-        return self.interpolate(a, b, xf)
+        a = self.__interpolate(p00, p10, yf)
+        b = self.__interpolate(p01, p11, yf)
+        return self.__interpolate(a, b, xf)
 
     # for smooth linear interpolation
     def __fade(self, f):
@@ -49,16 +49,16 @@ class Perlin_2D():
     
         for y in range(width):
             for x in range(width):
-                noise[y][x] = self.perlin(x*step, y*step)*amplitude*2       # *2 because not sure if normal range is [-0.5, 0.5] or [-1, 1]
+                noise[y][x] = self.__perlin(x*step, y*step)*amplitude*2       # *2 because not sure if normal range is [-0.5, 0.5] or [-1, 1]
                 # if x != 0:
-                    # noise[y][x] = rate_limit_value(noise[y][x], noise[y][x-1], amplitude*0.01, 1)
+                    # noise[y][x] = rate_limit_value(noise[y][x], noise[y][x-1], amplitude*2*0.005, 1)
         return noise
 
     def __generate_octaves(self, amplitude, width, step, octaves, divisor=2):
         octave_list = []
     
         for i in range(octaves):
-            octave_list.append(self.generate_noise(amplitude, width, step))
+            octave_list.append(self.__generate_noise(amplitude, width, step))
             amplitude = amplitude / divisor
             step      = step      * divisor     # step should get closer to 0 with each octave
         return octave_list
@@ -86,8 +86,8 @@ class Perlin_2D():
         return (gradX, gradY)
 
     def __setup(self, seed):
-        self.set_seed(seed)
-        self.gradX, self.gradY = self.create_gradientVectors()
+        self.__set_seed(seed)
+        self.gradX, self.gradY = self.__create_gradientVectors()
 
     def __set_seed(self, seed):
         # -1000000000 to make it work for a century (2**32 numpy limit)
@@ -109,21 +109,21 @@ class Perlin_2D():
             print("Current time is used as seed")
         
         np.random.seed(seed)
-        # self.store_seed(seed, offset)
+        # self.__store_seed(seed, offset)
     
     def __store_seed(self, seed, offset):
         seed = seed+(-offset)
         raise NotImplementedError
 
     def noise(self, amplitude, width, step, octaves, seed=None):
-        self.setup(seed)
+        self.__setup(seed)
         
-        return self.combine_octaves(self.generate_octaves(amplitude, width, step, octaves))
+        return self.__combine_octaves(self.__generate_octaves(amplitude, width, step, octaves))
 
     def plot_noise(self, noise):
         Time = [i for i in range(len(noise))]
         
-        plt.plot(Time, noise[0])
+        plt.plot(Time, noise)
         plt.show()
         
         plt.imshow(noise, cmap='gray')
@@ -143,7 +143,7 @@ def main():
     perlin_2D = Perlin_2D()
     
     amplitude = 600
-    noise = perlin_2D.noise(amplitude=amplitude, width=1000, step=0.01, octaves=1, seed=142)
+    noise = perlin_2D.noise(amplitude=amplitude, width=1000, step=0.01, octaves=3, seed=142)
     perlin_2D.plot_noise(noise)
     
     
