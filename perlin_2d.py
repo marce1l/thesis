@@ -4,8 +4,9 @@ import time
 
 # TODO:
 #   -> Stitch together multiple noise's for longer signal (noise[0] + noise[1]....) ((easy))
-#   -> Currently it's only using on row of the gradient vectors (modulo)
-#   -> Performane improvements (ditching for loops)
+#          have to find ideal step rate first
+#      3.6m ms = 1h
+#   -> Performane improvements (ditching for loops) IDK...
 
 class Perlin_2D():
 
@@ -56,38 +57,38 @@ class Perlin_2D():
 
     def __generate_octaves(self, amplitude, width, step, octaves, divisor=2):
         octave_list = []
-    
+
         for i in range(octaves):
             octave_list.append(self.__generate_noise(amplitude, width, step))
             amplitude = amplitude / divisor
             step      = step      * divisor     # step should get closer to 0 with each octave
+
         return octave_list
 
     def __combine_octaves(self, octave_list):
-        combined_noise = np.empty((len(octave_list[0][0]), len(octave_list[0][0])))
-    
-        for y in range(len(octave_list[0])):
-            for x in range (len(octave_list[0][0])):            
-                total = 0
-                for i in range(len(octave_list)):
-                    total += octave_list[i][y][x]
-                combined_noise[y][x] = total
-        return combined_noise
+        return np.add.reduce(octave_list)
 
-    def __create_gradientVectors(self):
-        gradX = np.random.rand(256,256) * 2 - 1
-        gradY = np.random.rand(256,256) * 2 - 1
-
+    def __create_gradientVectors(self, size):
+        gradX = np.random.rand(size,size) * 2 - 1
+        gradY = np.random.rand(size,size) * 2 - 1
+        
         # convert to unit vectors
-        c = np.sqrt(gradX ** 2 + gradY ** 2)
-        gradX = gradX / c
-        gradY = gradY / c
+        c = np.sqrt(gradX**2 + gradY**2)
+        gradX /= c
+        gradY /= c
         
         return (gradX, gradY)
 
+    def _stitch_noise(self, noise, width, step, grid_size):
+        if (width * step) * grid_size:
+            pass
+        for x in noise:
+            combined_noise = np.append(combined_noise, x)
+        return combined_noise
+
     def __setup(self, seed):
         self.__set_seed(seed)
-        self.gradX, self.gradY = self.__create_gradientVectors()
+        self.gradX, self.gradY = self.__create_gradientVectors(256)
 
     def __set_seed(self, seed):
         # -1000000000 to make it work for a century (2**32 numpy limit)
@@ -123,7 +124,12 @@ class Perlin_2D():
     def plot_noise(self, noise):
         Time = [i for i in range(len(noise))]
         
-        plt.plot(Time, noise)
+        plt.figure()
+        plt.hist(noise[0], bins=10, density=True, color='blue', ec='black')
+        plt.show()
+        
+        plt.figure()
+        plt.plot(Time, noise[0])
         plt.show()
         
         plt.imshow(noise, cmap='gray')
@@ -143,7 +149,10 @@ def main():
     perlin_2D = Perlin_2D()
     
     amplitude = 600
-    noise = perlin_2D.noise(amplitude=amplitude, width=1000, step=0.01, octaves=3, seed=142)
+    start = time.time()
+    noise = perlin_2D.noise(amplitude=amplitude, width=2000, step=0.01, octaves=1, seed=142)
+    end = time.time()
+    print(end - start)
     perlin_2D.plot_noise(noise)
     
     
