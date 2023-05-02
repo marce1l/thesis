@@ -3,9 +3,7 @@ import matplotlib.pyplot as plt
 import time
 
 # TODO:
-#   -> Stitch together multiple noise's for longer signal (noise[0] + noise[1]....) ((easy))
-#          have to find ideal step rate first
-#      3.6m ms = 1h
+#   -> Stitch together multiple noise's for longer signal (noise[0] + noise[1]....) doesn't work due to close index noise being too similar
 #   -> Performane improvements (ditching for loops) IDK...
 
 class Perlin_2D():
@@ -51,8 +49,8 @@ class Perlin_2D():
         for y in range(width):
             for x in range(width):
                 noise[y][x] = self.__perlin(x*step, y*step)*amplitude*2       # *2 because not sure if normal range is [-0.5, 0.5] or [-1, 1]
-                # if x != 0:
-                    # noise[y][x] = rate_limit_value(noise[y][x], noise[y][x-1], amplitude*2*0.005, 1)
+                if x != 0:
+                    noise[y][x] = rate_limit_value(noise[y][x], noise[y][x-1], amplitude*2*0.005, 1)
         return noise
 
     def __generate_octaves(self, amplitude, width, step, octaves, divisor=2):
@@ -79,12 +77,20 @@ class Perlin_2D():
         
         return (gradX, gradY)
 
-    def _stitch_noise(self, noise, width, step, grid_size):
-        if (width * step) * grid_size:
-            pass
-        for x in noise:
-            combined_noise = np.append(combined_noise, x)
-        return combined_noise
+    # def __stitch_noise(self, noise, width):
+        # length = int(width / 500)
+        # combined_noise = []
+        
+        # for i in range(length):
+            # print(noise[i][-1])
+            # combined_noise = np.append(combined_noise, noise[i])
+            # print(len(combined_noise))
+        
+        # if width % 500 != 0:
+            # remainder = width % 5000
+            # combined_noise = np.append(combined_noise, noise[length][:remainder])
+        
+        # return combined_noise
 
     def __setup(self, seed):
         self.__set_seed(seed)
@@ -118,15 +124,15 @@ class Perlin_2D():
 
     def noise(self, amplitude, width, step, octaves, seed=None):
         self.__setup(seed)
-        
+        # return self.__stitch_noise(noise, width)
         return self.__combine_octaves(self.__generate_octaves(amplitude, width, step, octaves))
 
     def plot_noise(self, noise):
         Time = [i for i in range(len(noise))]
-        
-        plt.figure()
-        plt.hist(noise[0], bins=10, density=True, color='blue', ec='black')
-        plt.show()
+
+        # plt.figure()
+        # plt.hist(noise, bins=10, density=True, color='blue', ec='black')
+        # plt.show()
         
         plt.figure()
         plt.plot(Time, noise[0])
@@ -149,25 +155,12 @@ def main():
     perlin_2D = Perlin_2D()
     
     amplitude = 600
-    start = time.time()
-    noise = perlin_2D.noise(amplitude=amplitude, width=2000, step=0.01, octaves=1, seed=142)
-    end = time.time()
-    print(end - start)
+    # start = time.time()
+    noise = perlin_2D.noise(amplitude=amplitude, width=1000, step=0.005, octaves=5, seed=999)
+    # end = time.time()
+    # print(end - start)
     perlin_2D.plot_noise(noise)
-    
-    
-    # noise = noise[0]
-    # Time = [i for i in range(len(noise))]
-    
-    # out = [noise[0]]
-    # for i in range(1, len(noise)):
-        # out.append(rate_limit_value(noise[i], out[-1], amplitude*0.01, 1))
 
-    # plt.plot(Time, noise, label="normal")
-    # plt.plot(Time, out, label="limited")
-    # plt.legend()
-    
-    # plt.show()
 
 if __name__ == "__main__":
     main()
