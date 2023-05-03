@@ -43,21 +43,21 @@ class Perlin_2D():
     def __interpolate(self, a, b, x):
         return a + x * (b - a)
 
-    def __generate_noise(self, amplitude, width, step):
+    def __generate_noise(self, width, step):
         noise = np.empty((width, width))
     
         for y in range(width):
             for x in range(width):
-                noise[y][x] = self.__perlin(x*step, y*step)*amplitude*2       # *2 because not sure if normal range is [-0.5, 0.5] or [-1, 1]
-                if x != 0:
-                    noise[y][x] = rate_limit_value(noise[y][x], noise[y][x-1], amplitude*2*0.005, 1)
+                noise[y][x] = self.__perlin(x*step, y*step)
+                # if x != 0:                                    # to new function
+                    # noise[y][x] = rate_limit_value(noise[y][x], noise[y][x-1], amplitude*2*0.005, 1)
         return noise
 
     def __generate_octaves(self, amplitude, width, step, octaves, divisor=2):
         octave_list = []
 
         for i in range(octaves):
-            octave_list.append(self.__generate_noise(amplitude, width, step))
+            octave_list.append(self.__scale_noise(self.__generate_noise(width, step), amplitude))
             amplitude = amplitude / divisor
             step      = step      * divisor     # step should get closer to 0 with each octave
 
@@ -65,6 +65,32 @@ class Perlin_2D():
 
     def __combine_octaves(self, octave_list):
         return np.add.reduce(octave_list)
+
+    def __scale_noise(self, noise, amplitude):
+        return noise * amplitude*2       # *2 because not sure if normal range is [-0.5, 0.5] or [-1, 1]
+
+    def extend_signal(self, signal, length, count):
+        extend_list = []
+        
+        for i in range(len(signal)):
+            t = np.linspace(0, len(signal[i]), 100)
+            Time = np.linspace(0, len(signal[i]), count)
+            
+            out = np.interp(Time, t, signal[i])
+            extend_list.append(out.tolist())
+            # Time = Time / len(signal) * length
+        return extend_list
+
+    def rate_limit_signal(self, signal, step):
+        '''
+        Not sure where to put it, how will it work
+        '''
+        limited = signal[0][1]
+        
+        for y in range(signal[0]):
+            for x in range(1, signal[0][0]):
+                self.__rate_limit_value(signal[y][x], signal[y][x-1], 1200*0.005, 1)
+        return limited
 
     def __create_gradientVectors(self, size):
         gradX = np.random.rand(size,size) * 2 - 1
@@ -76,21 +102,6 @@ class Perlin_2D():
         gradY /= c
         
         return (gradX, gradY)
-
-    # def __stitch_noise(self, noise, width):
-        # length = int(width / 500)
-        # combined_noise = []
-        
-        # for i in range(length):
-            # print(noise[i][-1])
-            # combined_noise = np.append(combined_noise, noise[i])
-            # print(len(combined_noise))
-        
-        # if width % 500 != 0:
-            # remainder = width % 5000
-            # combined_noise = np.append(combined_noise, noise[length][:remainder])
-        
-        # return combined_noise
 
     def __setup(self, seed):
         self.__set_seed(seed)
@@ -124,22 +135,21 @@ class Perlin_2D():
 
     def noise(self, amplitude, width, step, octaves, seed=None):
         self.__setup(seed)
-        # return self.__stitch_noise(noise, width)
         return self.__combine_octaves(self.__generate_octaves(amplitude, width, step, octaves))
 
     def plot_noise(self, noise):
-        Time = [i for i in range(len(noise))]
+        Time = np.linspace(0, len(noise), len(noise[0]))
 
         # plt.figure()
         # plt.hist(noise, bins=10, density=True, color='blue', ec='black')
         # plt.show()
         
         plt.figure()
-        plt.plot(Time, noise[0])
+        plt.plot(Time, noise[0], 'o')
         plt.show()
         
-        plt.imshow(noise, cmap='gray')
-        plt.show()
+        # plt.imshow(noise, cmap='gray')
+        # plt.show()
 
 
 def rate_limit_value(signal, previous_output, limiter, Ts):
@@ -156,11 +166,13 @@ def main():
     
     amplitude = 600
     # start = time.time()
-    noise = perlin_2D.noise(amplitude=amplitude, width=1000, step=0.005, octaves=5, seed=999)
+    noise = perlin_2D.noise(amplitude=amplitude, width=100, step=0.1, octaves=1, seed=999)
     # end = time.time()
     # print(end - start)
     perlin_2D.plot_noise(noise)
-
+    noise2 = perlin_2D.extend_signal(noise, 1000, 10000)
+    perlin_2D.plot_noise(noise2)
+    
 
 if __name__ == "__main__":
     main()
