@@ -3,7 +3,9 @@ import matplotlib.pyplot as plt
 import time
 
 # TODO:
-#   -> Stitch together multiple noise's for longer signal (noise[0] + noise[1]....) doesn't work due to close index noise being too similar
+#   -> fix rate limit so it limits to km/s? or deg/s
+#   -> send rate limit plot
+#   -> make signal transition demo and send plot with distribution chart
 #   -> Performane improvements (ditching for loops) IDK...
 
 class Perlin_2D():
@@ -49,15 +51,13 @@ class Perlin_2D():
         for y in range(width):
             for x in range(width):
                 noise[y][x] = self.__perlin(x*step, y*step)
-                # if x != 0:                                    # to new function
-                    # noise[y][x] = rate_limit_value(noise[y][x], noise[y][x-1], amplitude*2*0.005, 1)
         return noise
 
     def __generate_octaves(self, amplitude, width, step, octaves, divisor=2):
         octave_list = []
 
         for i in range(octaves):
-            octave_list.append(self.__scale_noise(self.__generate_noise(width, step), amplitude))
+            octave_list.append(self.scale_noise(self.__generate_noise(width, step), amplitude))
             amplitude = amplitude / divisor
             step      = step      * divisor     # step should get closer to 0 with each octave
 
@@ -66,14 +66,27 @@ class Perlin_2D():
     def __combine_octaves(self, octave_list):
         return np.add.reduce(octave_list)
 
-    def __scale_noise(self, noise, amplitude):
+    def scale_noise(self, noise, amplitude):
         return noise * amplitude*2       # *2 because not sure if normal range is [-0.5, 0.5] or [-1, 1]
 
-    def extend_signal(self, signal, length, count):
+    def scale_to_range(self, noise, given_range)
+        '''Doesn't account for minus values'''
+        num1, num2 = given_range
+        
+        if num1 > num2:
+            difference = num1 - num2
+            offset = num1 - difference
+        else:
+            difference = num2 - num1
+            offset = num2 - difference
+        
+        return noise + offset
+
+    def extend_signal(self, signal, count):
         extend_list = []
         
         for i in range(len(signal)):
-            t = np.linspace(0, len(signal[i]), 100)
+            t = np.linspace(0, len(signal[i]), len(signal))
             Time = np.linspace(0, len(signal[i]), count)
             
             out = np.interp(Time, t, signal[i])
@@ -81,16 +94,35 @@ class Perlin_2D():
             # Time = Time / len(signal) * length
         return extend_list
 
-    def rate_limit_signal(self, signal, step):
-        '''
-        Not sure where to put it, how will it work
-        '''
-        limited = signal[0][1]
-        
-        for y in range(signal[0]):
-            for x in range(1, signal[0][0]):
-                self.__rate_limit_value(signal[y][x], signal[y][x-1], 1200*0.005, 1)
+    def rate_limit_signal(self, signal, limit, step):
+        #1. végig a tömbön másodpercenként
+        #2. megnézni, hogy egy másodpercbe tartozó elemek összege nagyobb-e, mint a limit
+        #3. ha nem skip
+        #4. ha igen, leosztani egy másodperccel a túlment értéket és kivonni mindegyik elemből
+        limited = []
+
+        for y in range(len(signal)):
+            row = [signal[y][0]]
+            for x in range(1, len(signal[0])):
+                row.append(rate_limit_value(signal[y][x], row[x-1], limit, 1))
+            limited.append(row)
         return limited
+
+    def transition_from_signal_to_another(self, signal1, signal2, speed, percent):
+        combined = []
+        fade = np.linspace(0, 1, speed)
+        
+        indx = len(signal1)*percent
+        j = 0
+        for i in range(len(signal1)):
+            if i >= indx and i < indx+len(fade):
+                combined.append(signal1[i]*(1-fade[j]) + signal2[i]*fade[j])
+                j += 1
+            elif i < indx:
+                combined.append(signal1[i])
+            else:
+                combined.append(signal2[i])
+        return combined
 
     def __create_gradientVectors(self, size):
         gradX = np.random.rand(size,size) * 2 - 1
@@ -163,16 +195,67 @@ def rate_limit_value(signal, previous_output, limiter, Ts):
 
 def main():
     perlin_2D = Perlin_2D()
+
+    noise = perlin_2D.noise(amplitude=600, width=500, step=0.01, octaves=4, seed=999)
+    noise1 = perlin_2D.noise(amplitude=300, width=500, step=0.01, octaves=4, seed=167)
+    # perlin_2D.plot_noise(noise)
     
-    amplitude = 600
-    # start = time.time()
-    noise = perlin_2D.noise(amplitude=amplitude, width=100, step=0.1, octaves=1, seed=999)
-    # end = time.time()
-    # print(end - start)
-    perlin_2D.plot_noise(noise)
-    noise2 = perlin_2D.extend_signal(noise, 1000, 10000)
-    perlin_2D.plot_noise(noise2)
+    noise2 = perlin_2D.extend_signal(noise, 500)
+    noise22 = perlin_2D.extend_signal(noise1, 500)
+    noise22 = np.array(noise22) + 300
+    # perlin_2D.plot_noise(noise2)
+
+    noise4 = perlin_2D.transition_from_signal_to_another(noise2[0], noise22[0], 100, 0.5)
+    Time = np.linspace(0, len(noise[0]), len(noise[0]))
+    plt.plot(Time, noise4, label="combined")
+    plt.figure()
+    plt.plot(Time, noise2[0], label="600")
+    plt.plot(Time, noise22[0], label="300")
+    plt.legend()
+    plt.figure()
+    plt.imshow(noise2, cmap='gray')
+    
+    plt.figure()
+    plt.hist(noise2[0], bins=10, density=True, color='blue', ec='black')
+    plt.figure()
+    plt.hist(noise4, bins=10, density=True, color='blue', ec='black')
+    
+    plt.show()
+    # noise3 = perlin_2D.rate_limit_signal(noise2, 20, int(len(noise2[0])/len(noise2)))
+    # perlin_2D.plot_noise(noise3)
     
 
 if __name__ == "__main__":
     main()
+
+# x = np.linspace(0, 4*np.pi, 1000)
+# sin = np.sin(x*1.3)
+# cos = np.cos(x*0.6)
+
+# fade = np.linspace(0, 1, 400)
+
+# where = 300
+# j = 0
+# combined = []
+# for i in range(len(sin)):
+    # if i >= where and i < where+len(fade):
+        # combined.append(sin[i]*(1-fade[j]) + cos[i]*fade[j])
+        # j += 1
+    # elif i < where:
+        # combined.append(sin[i])
+    # else:
+        # combined.append(cos[i])
+
+
+# plt.plot(x, sin, label="sin*1.3")
+# plt.plot(x, cos, label="cos*0.6")
+# # plt.axvline(x[where], linestyle="--", color="red")
+# # plt.axvline(x[where+len(fade)], linestyle="--", color="red")
+# plt.axvspan(where/1000*(4*np.pi), (where+len(fade))/1000*(4*np.pi), color='grey', label="transition", alpha=0.2, zorder=10)
+# plt.legend()
+
+# plt.figure()
+# plt.plot(x, combined, label="sin --> cos")
+# plt.axvspan(where/1000*(4*np.pi), (where+len(fade))/1000*(4*np.pi), color='grey', label="transition", alpha=0.2, zorder=10)
+# plt.legend()
+# plt.show()
