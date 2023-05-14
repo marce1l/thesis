@@ -1,6 +1,7 @@
 import unittest
 import time
-from perlin_demo2 import *
+# from perlin_1d import *
+from perlin_2d import *
 
 class TestPseudoRandomGenerator(unittest.TestCase):
     
@@ -16,7 +17,37 @@ class TestPseudoRandomGenerator(unittest.TestCase):
         
         self.assertEqual(value1, value2, "Generated numbers does not match with same seed")
 
-try:
-    unittest.main()
-except SystemExit:
-    pass
+
+######################################
+#           RATE LIMITER             #
+######################################
+
+def rate_limit_value(signal, previous_output, limiter, Ts):
+    if abs((signal - previous_output) / Ts) > limiter:
+        exp_sign = np.sign(signal - previous_output)
+        value = previous_output + exp_sign * limiter * Ts
+    else:
+        value = signal
+    return value
+
+def test_step():
+        t = np.arange(0,1.5,0.001)
+        signal = np.append(3 * np.ones(500), -3*np.ones(500))
+        signal = np.pad(signal, (0, len(t)- len(signal)), "constant")
+        ratelimited = [signal[0]]
+        
+        for i in range(1,len(signal)):
+            ratelimited.append(rate_limit_value(signal[i], ratelimited[-1], 10, 0.01))
+            
+        plt.plot(t, signal, label = "Wheel angle [deg]", color = "blue", alpha = 0.8)
+        plt.plot(t, ratelimited, label = "Rate limited wheel angle [deg]", color = "firebrick")
+        plt.legend()
+        plt.show()
+
+test_step()
+
+
+# try:
+    # unittest.main()
+# except SystemExit:
+    # pass
