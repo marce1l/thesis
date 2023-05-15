@@ -138,16 +138,11 @@ class Transform():      # rename
         return noise * amplitude*2       # *2 because not sure if normal range is [-0.5, 0.5] or [-1, 1]
 
     def extend_signal(self, signal, count):
-        extend_list = []
+        t = np.linspace(0, len(signal), len(signal))
+        Time = np.linspace(0, len(signal), count)
         
-        for i in range(len(signal)):
-            t = np.linspace(0, len(signal[i]), len(signal))
-            Time = np.linspace(0, len(signal[i]), count)
-            
-            out = np.interp(Time, t, signal[i])
-            extend_list.append(out.tolist())
-            # Time = Time / len(signal) * length
-        return extend_list
+        out = np.interp(Time, t, signal)
+        return out
     
     def transition_from_signal_to_another(self, signal1, signal2, speed, percent):
         combined = []
@@ -184,53 +179,72 @@ class Transform():      # rename
         return idx
 
     def limit_stwa_by_vsp(self, stwa, vsp):
-        limited = [stwa[0]]
+        limited = []
         
-        for i in range(1, len(stwa)):
-            indx = self.find_nearest(self.speedArray, vsp[i])
-            if abs(stwa[i]) > self.angleArray[indx]:
+        for i in range(0, len(stwa)):
+            # indx = self.find_nearest(self.speedArray, vsp[i])
+            angle = self.get_stwa_from_vsp(vsp[i])
+            if abs(stwa[i]) > angle:
                 if stwa[i] < 0:
-                    limited.append(self.angleArray[indx]*-1)
+                    limited.append(angle*-1)
                 else:
-                    limited.append(self.angleArray[indx])
+                    limited.append(angle)
             else:
                 limited.append(stwa[i])
         return limited
 
+    def get_stwa_from_vsp(self, vsp):       # find better way to include scaling
+        return 0.5+np.exp((1-vsp/50)*2)*100
+
     def stwa_vsp_model(self, Endpos):
-        const = 10  # max ~250km/h
+        # const = 10  # max ~250km/h
 
-        angle = np.linspace(1, const, 10000)   # more gives better results? (log)
-        speed = np.log(angle)
-        speed = np.flip(speed)
-
-        angle = angle*Endpos/10
-        speed = speed*Endpos/10*2
-
-        self.angleArray = angle
-        self.speedArray = speed
-        
-        # angle = np.linspace(0, 5.5, Endpos)   # exp solution
-        # speed = np.exp(angle)
+        # angle = np.linspace(1, const, 10000)   # more gives better results? (log)
+        # speed = np.log(angle)
         # speed = np.flip(speed)
 
-        plt.plot(speed, angle)
+        # angle = angle*Endpos/10
+        # speed = speed*Endpos/10*2
+
+        speed = np.linspace(0, 4, 100)   # exp solution
+        angle = 0.5+np.exp((1-speed)*2)
+        
+        # cut off at Endpos
+        
+        speed = speed*50
+        angle = angle*100
+
+        self.speedArray = speed
+        self.angleArray = angle
+
+        plt.plot(speed, angle, 'o')
         # plt.show()
     
+    # def ramp_from_and_to_zero(self, signal):
+        # '''Currenly doesn't work for negative values'''
+        # add_to_start = []
+        # add_to_end = []
+        
+        # if signal[0] != 0:
+            # add_to_start = np.linspace(0, signal[0], int(signal[0]))
+        
+        # if signal[-1] != 0:
+            # add_to_end = np.linspace(signal[0], 0, int(signal[0]))
+        
+        # signal = np.concatenate((add_to_start, signal, add_to_end))
+        
+        # return signal
+    
     def ramp_from_and_to_zero(self, signal):
-        '''Currenly doesn't work for negative values'''
-        add_to_start = []
-        add_to_end = []
+        limit = 5      # temp
         
-        if signal[0] != 0:
-            add_to_start = np.linspace(0, signal[0], int(signal[0]))
+        signal[0]  = 0
+        ramp_start = self.rate_limit_signal(signal, limit)
+        ramp_start[-1] = 0
+        flipped = np.flip(ramp_start)
         
-        if signal[-1] != 0:
-            add_to_end = np.linspace(signal[0], 0, int(signal[0]))
-        
-        signal = np.concatenate((add_to_start, signal, add_to_end))
-        
-        return signal
+        ramp_end = self.rate_limit_signal(flipped, limit)
+        return np.flip(ramp_end)
 
 def plot_noise(noise):
     Time = np.linspace(0, len(noise), len(noise[0]))
@@ -262,9 +276,9 @@ def main():
     transform = Transform()
     
     # 1.
-    noise = perlin_2D.noise(500, 0.01, 2, seed=999)
+    noise = perlin_2D.noise(500, 0.01, 2, seed=1000)
     vsp1 = noise[0]
-    stwa = noise[-1]*2400
+    stwa = noise[-1]*600*2
     
     noise = perlin_2D.noise(500, 0.01, 2, seed=888)
     vsp2 = noise[0]
@@ -276,7 +290,7 @@ def main():
     scaled_vsp1 = transform.scale_to_range(vsp1, (mode["highway"][0][0], mode["highway"][0][1]))
     scaled_vsp2 = transform.scale_to_range(vsp2, (mode["highway"][1][0], mode["highway"][1][1]))
     
-    distr_vsp = transform.transition_from_signal_to_another(scaled_vsp1, scaled_vsp2, 50, mode["highway"][0][2])
+    distr_vsp = transform.transition_from_signal_to_another(scaled_vsp1, scaled_vsp2, 100, mode["highway"][0][2])
     
     # 4.
     stwa = transform.limit_stwa_by_vsp(stwa, distr_vsp)
@@ -287,7 +301,10 @@ def main():
     
     # 6. (extra)
     ramped_vsp  = transform.ramp_from_and_to_zero(limited_vsp)
-    # ramped_stwa = transform.ramp_from_and_to_zero(limited_stwa)
+    ramped_stwa = transform.ramp_from_and_to_zero(limited_stwa)
+    
+    extended_vsp  = transform.extend_signal(ramped_vsp, 10000)
+    extended_stwa = transform.extend_signal(ramped_stwa, 10000)
     
     # 7. (plot)
     Time1 = np.linspace(0, len(ramped_vsp), len(ramped_vsp))
