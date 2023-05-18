@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 
+import scipy.io as matio
+
 # TODO:
 #   -> Performane improvements (ditching for loops) IDK...
 
@@ -16,7 +18,7 @@ class Perlin_2D():
     gradY = [[]]
 
 
-    def __perlin(self, x, y):
+    def perlin(self, x, y):
         # grid top left index
         xi = int(x)
         yi = int(y)
@@ -31,44 +33,44 @@ class Perlin_2D():
         p10 = xd     * self.gradX[yi+1][xi]   + (yd-1) * self.gradY[yi+1][xi]
         p11 = (xd-1) * self.gradX[yi+1][xi+1] + (yd-1) * self.gradY[yi+1][xi+1]
 
-        xf = self.__fade(xd)
-        yf = self.__fade(yd)
+        xf = self.fade(xd)
+        yf = self.fade(yd)
         
-        a = self.__interpolate(p00, p10, yf)
-        b = self.__interpolate(p01, p11, yf)
-        return self.__interpolate(a, b, xf)
+        a = self.interpolate(p00, p10, yf)
+        b = self.interpolate(p01, p11, yf)
+        return self.interpolate(a, b, xf)
 
     # for smooth linear interpolation
-    def __fade(self, f):
+    def fade(self, f):
         return 6 * f**5 - 15 * f**4 + 10 * f**3
 
     # linear interpolation
-    def __interpolate(self, a, b, x):
+    def interpolate(self, a, b, x):
         return a + x * (b - a)
 
-    def __generate_noise(self, width, step):
+    def generate_noise(self, width, step):
         noise = np.empty((width, width))
     
         for y in range(width):
             for x in range(width):
-                noise[y][x] = self.__perlin(x*step, y*step)
+                noise[y][x] = self.perlin(x*step, y*step)
         return noise
 
-    def __generate_octaves(self, width, step, octaves, divisor=2):
-        amplitude = 1
+    def generate_octaves(self, width, step, octaves, divisor=2):
+        amplitude = 1.0
         octave_list = []
 
         for i in range(octaves):
-            octave_list.append(self.__generate_noise(width, step)*amplitude)
+            octave_list.append(self.generate_noise(width, step)*amplitude)
             amplitude = amplitude / divisor
             step      = step      * divisor     # step should get closer to 0 with each octave
 
         return octave_list
 
-    def __combine_octaves(self, octave_list):
+    def combine_octaves(self, octave_list):
         return np.add.reduce(octave_list)
 
-    def __create_gradientVectors(self, size):
+    def create_gradientVectors(self, size):
         gradX = np.random.rand(size,size) * 2 - 1
         gradY = np.random.rand(size,size) * 2 - 1
         
@@ -79,11 +81,11 @@ class Perlin_2D():
         
         return (gradX, gradY)
 
-    def __setup(self, seed):
-        self.__set_seed(seed)
-        self.gradX, self.gradY = self.__create_gradientVectors(256)
+    def setup(self, seed):
+        self.set_seed(seed)
+        self.gradX, self.gradY = self.create_gradientVectors(256)
 
-    def __set_seed(self, seed):
+    def set_seed(self, seed):
         # -1000000000 to make it work for a century (2**32 numpy limit)
         offset = -1000000000
         
@@ -103,21 +105,13 @@ class Perlin_2D():
             print("Current time is used as seed")
         
         np.random.seed(seed)
-        # self.__store_seed(seed, offset)
-    
-    def __store_seed(self, seed, offset):
-        seed = seed+(-offset)
-        raise NotImplementedError
 
     def noise(self, width, step, octaves, seed=None):
-        self.__setup(seed)
+        self.setup(seed)
         return self.__combine_octaves(self.__generate_octaves(width, step, octaves))
 
 
 class Transform():      # rename
-
-    angleArray = []
-    speedArray = []
 
     def rate_limit_value(self, signal, previous_output, limiter, Ts):
         if abs((signal - previous_output) / Ts) > limiter:
@@ -173,16 +167,10 @@ class Transform():      # rename
 
         return noise*difference + offset
 
-    def find_nearest(self, array, value):
-        array = np.asarray(array)
-        idx = (np.abs(array - value)).argmin()
-        return idx
-
     def limit_stwa_by_vsp(self, stwa, vsp):
         limited = []
         
         for i in range(0, len(stwa)):
-            # indx = self.find_nearest(self.speedArray, vsp[i])
             angle = self.get_stwa_from_vsp(vsp[i])
             if abs(stwa[i]) > angle:
                 if stwa[i] < 0:
@@ -193,57 +181,19 @@ class Transform():      # rename
                 limited.append(stwa[i])
         return limited
 
-    def get_stwa_from_vsp(self, vsp):       # find better way to include scaling
+    def get_stwa_from_vsp(self, vsp):
+        # speed = np.linspace(0, 4, 100)
+        # angle = 0.5+np.exp((1-speed)*2)     # geogebra
+        # cut off at Endpos?
         return 0.5+np.exp((1-vsp/50)*2)*100
-
-    def stwa_vsp_model(self, Endpos):
-        # const = 10  # max ~250km/h
-
-        # angle = np.linspace(1, const, 10000)   # more gives better results? (log)
-        # speed = np.log(angle)
-        # speed = np.flip(speed)
-
-        # angle = angle*Endpos/10
-        # speed = speed*Endpos/10*2
-
-        speed = np.linspace(0, 4, 100)   # exp solution
-        angle = 0.5+np.exp((1-speed)*2)
-        
-        # cut off at Endpos
-        
-        speed = speed*50
-        angle = angle*100
-
-        self.speedArray = speed
-        self.angleArray = angle
-
-        plt.plot(speed, angle, 'o')
-        # plt.show()
     
-    # def ramp_from_and_to_zero(self, signal):
-        # '''Currenly doesn't work for negative values'''
-        # add_to_start = []
-        # add_to_end = []
-        
-        # if signal[0] != 0:
-            # add_to_start = np.linspace(0, signal[0], int(signal[0]))
-        
-        # if signal[-1] != 0:
-            # add_to_end = np.linspace(signal[0], 0, int(signal[0]))
-        
-        # signal = np.concatenate((add_to_start, signal, add_to_end))
-        
-        # return signal
-    
-    def ramp_from_and_to_zero(self, signal):
-        limit = 5      # temp
-        
+    def ramp_from_and_to_zero(self, signal, rate_limit):
         signal[0]  = 0
-        ramp_start = self.rate_limit_signal(signal, limit)
+        ramp_start = self.rate_limit_signal(signal, rate_limit)
         ramp_start[-1] = 0
         flipped = np.flip(ramp_start)
         
-        ramp_end = self.rate_limit_signal(flipped, limit)
+        ramp_end = self.rate_limit_signal(flipped, rate_limit)
         return np.flip(ramp_end)
 
 def plot_noise(noise):
@@ -259,6 +209,24 @@ def plot_noise(noise):
     
     plt.imshow(noise, cmap='gray')
     plt.show()
+
+def noise(test_length, octaves, seed=None):
+    pass
+
+def store_seed(self, seed, offset):
+    seed = seed+(-offset)
+    raise NotImplementedError
+
+def export_to_mat(self, vsp, stwa, Time, filename = ""):
+    path = r'c:\Users\dud\Desktop\matexport' + os.sep + filename
+
+    export_dict = {}
+    export_dict["VSP"] = vsp
+    export_dict["STWA"] = stwa
+    export_dict["Time"] = Time
+
+    matio.savemat(path, export_dict)
+    print(path)
 
 def main():
     mode = {
@@ -278,44 +246,41 @@ def main():
     # 1.
     noise = perlin_2D.noise(500, 0.01, 2, seed=1000)
     vsp1 = noise[0]
-    stwa = noise[-1]*600*2
+    stwa = transform.scale_noise(noise[-1], 600)
     
     noise = perlin_2D.noise(500, 0.01, 2, seed=888)
     vsp2 = noise[0]
-
-    # 2.
-    transform.stwa_vsp_model(600)
     
-    # 3.
+    # 2.
     scaled_vsp1 = transform.scale_to_range(vsp1, (mode["highway"][0][0], mode["highway"][0][1]))
     scaled_vsp2 = transform.scale_to_range(vsp2, (mode["highway"][1][0], mode["highway"][1][1]))
     
     distr_vsp = transform.transition_from_signal_to_another(scaled_vsp1, scaled_vsp2, 100, mode["highway"][0][2])
     
-    # 4.
+    # 3.
     stwa = transform.limit_stwa_by_vsp(stwa, distr_vsp)
     
-    # 5.    
+    # 4.    
     limited_vsp  = transform.rate_limit_signal(distr_vsp, 5)
     limited_stwa = transform.rate_limit_signal(stwa, 20)
     
-    # 6. (extra)
-    ramped_vsp  = transform.ramp_from_and_to_zero(limited_vsp)
-    ramped_stwa = transform.ramp_from_and_to_zero(limited_stwa)
+    # 5. (extra)
+    ramped_vsp  = transform.ramp_from_and_to_zero(limited_vsp, 5)
+    ramped_stwa = transform.ramp_from_and_to_zero(limited_stwa, 20)
     
     extended_vsp  = transform.extend_signal(ramped_vsp, 10000)
     extended_stwa = transform.extend_signal(ramped_stwa, 10000)
     
-    # 7. (plot)
+    # 6. (plot)
     Time1 = np.linspace(0, len(ramped_vsp), len(ramped_vsp))
-    Time2 = np.linspace(0, len(stwa), len(stwa))
+    Time2 = np.linspace(0, len(ramped_stwa), len(ramped_stwa))
     
     plt.figure()
     plt.plot(Time1, ramped_vsp, label="vsp")
     plt.legend()
     
     plt.figure()
-    plt.plot(Time2, stwa, label="stwa")
+    plt.plot(Time2, ramped_stwa, label="stwa")
     plt.legend()
     
     plt.show()
@@ -323,3 +288,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
