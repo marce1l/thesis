@@ -1,15 +1,20 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-
+import os
 import scipy.io as matio
 
 # TODO:
-#   -> Performane improvements (ditching for loops) IDK...
+#   -> merge 1D and 2D perlin?
+#   -> numpy.random.seed() is legacy, replacement?
+#   -> random generated seed can't be stored in filename
 
 # Steering wheel angle and vehicle speed relation
 # https://www.researchgate.net/figure/Steering-wheel-angle-limit-as-a-function-of-vehicle-speed_fig3_224266032
 # https://www.researchgate.net/figure/Vehicle-Velocity-versus-Steering-Angle-explains-the-most-important-interaction-behavior_fig4_268407527
+
+# -1000000000 to make it work for a century (2**32 numpy limit)
+seed_offset = -1000000000
 
 class Perlin_2D():
 
@@ -86,21 +91,18 @@ class Perlin_2D():
         self.gradX, self.gradY = self.create_gradientVectors(256)
 
     def set_seed(self, seed):
-        # -1000000000 to make it work for a century (2**32 numpy limit)
-        offset = -1000000000
-        
         # Note: python 2 and python 3 time.time() differs in precision
         if seed is None:
-            seed = int(time.time())+offset
+            seed = int(time.time())+seed_offset
             
         try:
             np.random.seed(seed)
         except TypeError as e:
-            seed = int(time.time())+offset
+            seed = int(time.time())+seed_offset
             print("TypeError: %s" % e)
             print("Current time is used as seed")
         except ValueError as e:
-            seed = int(time.time())+offset
+            seed = int(time.time())+seed_offset
             print("ValueError: %s" % e)
             print("Current time is used as seed")
         
@@ -108,7 +110,7 @@ class Perlin_2D():
 
     def noise(self, width, step, octaves, seed=None):
         self.setup(seed)
-        return self.__combine_octaves(self.__generate_octaves(width, step, octaves))
+        return self.combine_octaves(self.generate_octaves(width, step, octaves))
 
 
 class Transform():      # rename
@@ -121,11 +123,11 @@ class Transform():      # rename
             value = signal
         return value
     
-    def rate_limit_signal(self, signal, limit):
+    def rate_limit_signal(self, signal, limit, sampling_rate):
         limited = [signal[0]]
 
         for i in range(1, len(signal)):
-            limited.append(self.rate_limit_value(signal[i], limited[i-1], limit, 1))
+            limited.append(self.rate_limit_value(signal[i], limited[i-1], limit, sampling_rate))        # Ts should be set according to noise sampling rate
         return limited
 
     def scale_noise(self, noise, amplitude):
@@ -154,7 +156,7 @@ class Transform():      # rename
                 combined.append(signal2[i])
         return combined
     
-    def scale_to_range(self, noise, given_range):
+    def scale_to_range(self, noise, given_range):               # something doesn't work (can get lower values than given_range minimum)
         '''Doesn't account for minus values (Doesn't have to)'''
         num1, num2 = given_range
         
@@ -187,38 +189,63 @@ class Transform():      # rename
         # cut off at Endpos?
         return 0.5+np.exp((1-vsp/50)*2)*100
     
-    def ramp_from_and_to_zero(self, signal, rate_limit):
+    def ramp_from_and_to_zero(self, signal, rate_limit, sampling_rate):
         signal[0]  = 0
-        ramp_start = self.rate_limit_signal(signal, rate_limit)
+        ramp_start = self.rate_limit_signal(signal, rate_limit, sampling_rate)
         ramp_start[-1] = 0
         flipped = np.flip(ramp_start)
         
-        ramp_end = self.rate_limit_signal(flipped, rate_limit)
+        ramp_end = self.rate_limit_signal(flipped, rate_limit, sampling_rate)
         return np.flip(ramp_end)
 
-def plot_noise(noise):
-    Time = np.linspace(0, len(noise), len(noise[0]))
 
-    # plt.figure()
-    # plt.hist(noise, bins=10, density=True, color='blue', ec='black')
-    # plt.show()
+def noise(test_length, mode, Endpos, octaves=2, seed=None, filename="export",):
+    perlin    = Perlin_2D()
+    transform = Transform()
     
-    plt.figure()
-    plt.plot(Time, noise[0])
-    plt.show()
+    # 1.
+    noise = perlin.noise(500, 0.01, octaves, seed=seed)
+    vsp1 = noise[0]
+    vsp2 = noise[int(len(noise)/2)]
+    stwa = transform.scale_noise(noise[-1], Endpos)
     
-    plt.imshow(noise, cmap='gray')
-    plt.show()
+    # 2.
+    scaled_vsp1 = transform.scale_to_range(vsp1, (mode["highway"][0][0], mode["highway"][0][1]))
+    scaled_vsp2 = transform.scale_to_range(vsp2, (mode["highway"][1][0], mode["highway"][1][1]))
+    
+    distr_vsp = transform.transition_from_signal_to_another(scaled_vsp1, scaled_vsp2, 100, mode["highway"][0][2])
+    
+    # 3.
+    limited_by_vsp_stwa = transform.limit_stwa_by_vsp(stwa, distr_vsp)
+    
+    # 4.    
+    limited_vsp  = transform.rate_limit_signal(distr_vsp, 5, 1)
+    limited_stwa = transform.rate_limit_signal(limited_by_vsp_stwa, 20, 1)
+    
+    # 5.
+    ramped_vsp  = transform.ramp_from_and_to_zero(limited_vsp, 5, 1)
+    ramped_stwa = transform.ramp_from_and_to_zero(limited_stwa, 20, 1)
+    
+    # 6.
+    extended_vsp  = transform.extend_signal(ramped_vsp, 10000)
+    extended_stwa = transform.extend_signal(ramped_stwa, 10000)
+    
+    Time = np.linspace(0, test_length*60, 10000)
+    
+    filename = filename + "_" + str(seed_to_store(seed)) + ".mat"
+    # export_to_mat(extended_vsp, extended_stwa, Time, filename=filename)
+    
+    return (extended_vsp, extended_stwa, Time)
 
-def noise(test_length, octaves, seed=None):
-    pass
+def seed_to_store(seed):
+    if seed is None:
+        return ""
+        # return seed+(-seed_offset)
+    else:
+        return seed
 
-def store_seed(self, seed, offset):
-    seed = seed+(-offset)
-    raise NotImplementedError
-
-def export_to_mat(self, vsp, stwa, Time, filename = ""):
-    path = r'c:\Users\dud\Desktop\matexport' + os.sep + filename
+def export_to_mat(vsp, stwa, Time, filename = ""):
+    path = r'c:\Users\dud\Desktop' + os.sep + filename
 
     export_dict = {}
     export_dict["VSP"] = vsp
@@ -240,47 +267,15 @@ def main():
             ]
     }
 
-    perlin_2D = Perlin_2D()
-    transform = Transform()
-    
-    # 1.
-    noise = perlin_2D.noise(500, 0.01, 2, seed=1000)
-    vsp1 = noise[0]
-    stwa = transform.scale_noise(noise[-1], 600)
-    
-    noise = perlin_2D.noise(500, 0.01, 2, seed=888)
-    vsp2 = noise[0]
-    
-    # 2.
-    scaled_vsp1 = transform.scale_to_range(vsp1, (mode["highway"][0][0], mode["highway"][0][1]))
-    scaled_vsp2 = transform.scale_to_range(vsp2, (mode["highway"][1][0], mode["highway"][1][1]))
-    
-    distr_vsp = transform.transition_from_signal_to_another(scaled_vsp1, scaled_vsp2, 100, mode["highway"][0][2])
-    
-    # 3.
-    stwa = transform.limit_stwa_by_vsp(stwa, distr_vsp)
-    
-    # 4.    
-    limited_vsp  = transform.rate_limit_signal(distr_vsp, 5)
-    limited_stwa = transform.rate_limit_signal(stwa, 20)
-    
-    # 5. (extra)
-    ramped_vsp  = transform.ramp_from_and_to_zero(limited_vsp, 5)
-    ramped_stwa = transform.ramp_from_and_to_zero(limited_stwa, 20)
-    
-    extended_vsp  = transform.extend_signal(ramped_vsp, 10000)
-    extended_stwa = transform.extend_signal(ramped_stwa, 10000)
+    vsp, stwa, Time = noise(5, mode, 600, 2, seed=1000)
     
     # 6. (plot)
-    Time1 = np.linspace(0, len(ramped_vsp), len(ramped_vsp))
-    Time2 = np.linspace(0, len(ramped_stwa), len(ramped_stwa))
-    
     plt.figure()
-    plt.plot(Time1, ramped_vsp, label="vsp")
+    plt.plot(Time, vsp, label="vsp")
     plt.legend()
     
     plt.figure()
-    plt.plot(Time2, ramped_stwa, label="stwa")
+    plt.plot(Time, stwa, label="stwa")
     plt.legend()
     
     plt.show()
