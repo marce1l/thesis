@@ -5,6 +5,8 @@ import os
 import scipy.io as matio
 
 # TODO:
+#   -> limit stwa after extending it because sampling frequency (vsp should be fine)
+#   -> vsp scaling
 #   -> merge 1D and 2D perlin?
 #   -> numpy.random.seed() is legacy, replacement?
 #   -> random generated seed can't be stored in filename
@@ -156,7 +158,7 @@ class Transform():      # rename
                 combined.append(signal2[i])
         return combined
     
-    def scale_to_range(self, noise, given_range):               # something doesn't work (can get lower values than given_range minimum)
+    def scale_to_range(self, noise, given_range):
         '''Doesn't account for minus values (Doesn't have to)'''
         num1, num2 = given_range
         
@@ -167,7 +169,12 @@ class Transform():      # rename
             difference = num2 - num1
             offset = num1
 
-        return noise*difference + offset
+        noise = noise+1
+        scale_to_positive = (2-max(noise)+1-min(noise))/2
+        noise = noise+scale_to_positive
+
+        # return noise*difference + offset
+        return noise*(difference/2)+offset
 
     def limit_stwa_by_vsp(self, stwa, vsp):
         limited = []
@@ -203,8 +210,11 @@ def noise(test_length, mode, Endpos, octaves=2, seed=None, filename="export",):
     perlin    = Perlin_2D()
     transform = Transform()
     
+    perlin_length = 500
+    test_length   = test_length*60      # convert to seconds
+    
     # 1.
-    noise = perlin.noise(500, 0.01, octaves, seed=seed)
+    noise = perlin.noise(perlin_length, 0.01, octaves, seed=seed)
     vsp1 = noise[0]
     vsp2 = noise[int(len(noise)/2)]
     stwa = transform.scale_noise(noise[-1], Endpos)
@@ -219,23 +229,23 @@ def noise(test_length, mode, Endpos, octaves=2, seed=None, filename="export",):
     limited_by_vsp_stwa = transform.limit_stwa_by_vsp(stwa, distr_vsp)
     
     # 4.    
-    limited_vsp  = transform.rate_limit_signal(distr_vsp, 5, 1)
-    limited_stwa = transform.rate_limit_signal(limited_by_vsp_stwa, 20, 1)
+    limited_vsp  = transform.rate_limit_signal(distr_vsp, 5, perlin_length/test_length)
+    limited_stwa = transform.rate_limit_signal(limited_by_vsp_stwa, 20, perlin_length/test_length)
     
-    # 5.
-    ramped_vsp  = transform.ramp_from_and_to_zero(limited_vsp, 5, 1)
-    ramped_stwa = transform.ramp_from_and_to_zero(limited_stwa, 20, 1)
+    # # 5.
+    ramped_vsp  = transform.ramp_from_and_to_zero(limited_vsp, 5, test_length/perlin_length)
+    ramped_stwa = transform.ramp_from_and_to_zero(limited_stwa, 20, test_length/perlin_length)
     
-    # 6.
+    # # 6.
     extended_vsp  = transform.extend_signal(ramped_vsp, 10000)
     extended_stwa = transform.extend_signal(ramped_stwa, 10000)
     
-    Time = np.linspace(0, test_length*60, 10000)
+    Time = np.linspace(0, test_length, len(scaled_vsp2))
     
     filename = filename + "_" + str(seed_to_store(seed)) + ".mat"
     # export_to_mat(extended_vsp, extended_stwa, Time, filename=filename)
     
-    return (extended_vsp, extended_stwa, Time)
+    return scaled_vsp1, scaled_vsp2, Time
 
 def seed_to_store(seed):
     if seed is None:
@@ -269,11 +279,15 @@ def main():
 
     vsp, stwa, Time = noise(5, mode, 600, 2, seed=1000)
     
+    for i in range(1, len(stwa)):
+        if (abs(stwa[i] - stwa[i-1]) > 20):
+            print("%s. stwa[i]: %s stwa[-1]: %s diff: %s" % (i, stwa[i], stwa[i-1], abs(stwa[i] - stwa[i-1])))
+    
     # 6. (plot)
     plt.figure()
     plt.plot(Time, vsp, label="vsp")
     plt.legend()
-    
+
     plt.figure()
     plt.plot(Time, stwa, label="stwa")
     plt.legend()
