@@ -5,11 +5,9 @@ import os
 import scipy.io as matio
 
 # TODO:
-#   -> limit stwa after extending it because sampling frequency (vsp should be fine)
-#   -> vsp scaling
+#   -> limit stwa after extending it because sampling frequency? (vsp should be fine)
 #   -> merge 1D and 2D perlin?
 #   -> numpy.random.seed() is legacy, replacement?
-#   -> random generated seed can't be stored in filename
 
 # Steering wheel angle and vehicle speed relation
 # https://www.researchgate.net/figure/Steering-wheel-angle-limit-as-a-function-of-vehicle-speed_fig3_224266032
@@ -88,30 +86,8 @@ class Perlin_2D():
         
         return (gradX, gradY)
 
-    def setup(self, seed):
-        self.set_seed(seed)
-        self.gradX, self.gradY = self.create_gradientVectors(256)
-
-    def set_seed(self, seed):
-        # Note: python 2 and python 3 time.time() differs in precision
-        if seed is None:
-            seed = int(time.time())+seed_offset
-            
-        try:
-            np.random.seed(seed)
-        except TypeError as e:
-            seed = int(time.time())+seed_offset
-            print("TypeError: %s" % e)
-            print("Current time is used as seed")
-        except ValueError as e:
-            seed = int(time.time())+seed_offset
-            print("ValueError: %s" % e)
-            print("Current time is used as seed")
-        
-        np.random.seed(seed)
-
     def noise(self, width, step, octaves, seed=None):
-        self.setup(seed)
+        self.gradX, self.gradY = self.create_gradientVectors(256)
         return self.combine_octaves(self.generate_octaves(width, step, octaves))
 
 
@@ -129,7 +105,7 @@ class Transform():      # rename
         limited = [signal[0]]
 
         for i in range(1, len(signal)):
-            limited.append(self.rate_limit_value(signal[i], limited[i-1], limit, sampling_rate))        # Ts should be set according to noise sampling rate
+            limited.append(self.rate_limit_value(signal[i], limited[i-1], limit, sampling_rate))
         return limited
 
     def scale_noise(self, noise, amplitude):
@@ -158,23 +134,30 @@ class Transform():      # rename
                 combined.append(signal2[i])
         return combined
     
-    def scale_to_range(self, noise, given_range):
+    def scale_to_range(self, noise, min_range, max_range):
         '''Doesn't account for minus values (Doesn't have to)'''
-        num1, num2 = given_range
-        
-        if num1 > num2:
-            difference = num1 - num2
-            offset = num2
+        difference = max_range - min_range
+        offset = min_range
+
+        max_value = abs(max(noise))
+        min_value = abs(min(noise))
+
+        if max_value > min_value:
+            noise = noise * (1/max_value)
         else:
-            difference = num2 - num1
-            offset = num1
+            noise = noise * (1/min_value)
+        
+        noise = ((noise+1)/2)*difference+offset
+        
+        max_value = max(noise)
+        min_value = min(noise)
+        
+        if max_range-max_value < min_value-min_range:
+            noise = noise - (min_value-min_range)/2
+        else:
+            noise = noise + (max_range-max_value)/2
 
-        noise = noise+1
-        scale_to_positive = (2-max(noise)+1-min(noise))/2
-        noise = noise+scale_to_positive
-
-        # return noise*difference + offset
-        return noise*(difference/2)+offset
+        return noise
 
     def limit_stwa_by_vsp(self, stwa, vsp):
         limited = []
@@ -206,12 +189,14 @@ class Transform():      # rename
         return np.flip(ramp_end)
 
 
-def noise(test_length, mode, Endpos, octaves=2, seed=None, filename="export",):
+def noise(test_length, mode, Endpos, octaves=2, seed=None, filename="export"):
     perlin    = Perlin_2D()
     transform = Transform()
     
     perlin_length = 500
-    test_length   = test_length*60      # convert to seconds
+    test_length   = test_length*60
+    
+    seed = set_seed(seed)
     
     # 1.
     noise = perlin.noise(perlin_length, 0.01, octaves, seed=seed)
@@ -219,9 +204,9 @@ def noise(test_length, mode, Endpos, octaves=2, seed=None, filename="export",):
     vsp2 = noise[int(len(noise)/2)]
     stwa = transform.scale_noise(noise[-1], Endpos)
     
-    # 2.
-    scaled_vsp1 = transform.scale_to_range(vsp1, (mode["highway"][0][0], mode["highway"][0][1]))
-    scaled_vsp2 = transform.scale_to_range(vsp2, (mode["highway"][1][0], mode["highway"][1][1]))
+    # 2.    # TODO: add check for max, min value
+    scaled_vsp1 = transform.scale_to_range(vsp1, mode["highway"][0][0], mode["highway"][0][1])
+    scaled_vsp2 = transform.scale_to_range(vsp2, mode["highway"][1][0], mode["highway"][1][1])
     
     distr_vsp = transform.transition_from_signal_to_another(scaled_vsp1, scaled_vsp2, 100, mode["highway"][0][2])
     
@@ -229,23 +214,42 @@ def noise(test_length, mode, Endpos, octaves=2, seed=None, filename="export",):
     limited_by_vsp_stwa = transform.limit_stwa_by_vsp(stwa, distr_vsp)
     
     # 4.    
-    limited_vsp  = transform.rate_limit_signal(distr_vsp, 5, perlin_length/test_length)
-    limited_stwa = transform.rate_limit_signal(limited_by_vsp_stwa, 20, perlin_length/test_length)
+    limited_vsp  = transform.rate_limit_signal(distr_vsp, 5, test_length/perlin_length)
+    limited_stwa = transform.rate_limit_signal(limited_by_vsp_stwa, 20, test_length/perlin_length)
     
-    # # 5.
+    # 5.
     ramped_vsp  = transform.ramp_from_and_to_zero(limited_vsp, 5, test_length/perlin_length)
     ramped_stwa = transform.ramp_from_and_to_zero(limited_stwa, 20, test_length/perlin_length)
     
-    # # 6.
+    # 6.
     extended_vsp  = transform.extend_signal(ramped_vsp, 10000)
     extended_stwa = transform.extend_signal(ramped_stwa, 10000)
     
-    Time = np.linspace(0, test_length, len(scaled_vsp2))
+    Time = np.linspace(0, test_length, len(extended_vsp))
     
     filename = filename + "_" + str(seed_to_store(seed)) + ".mat"
     # export_to_mat(extended_vsp, extended_stwa, Time, filename=filename)
     
-    return scaled_vsp1, scaled_vsp2, Time
+    return extended_vsp, extended_stwa, Time
+
+def set_seed(seed):
+    # Note: python 2 and python 3 time.time() differs in precision
+    if seed is None:
+        seed = int(time.time())+seed_offset
+        
+    try:
+        np.random.seed(seed)
+    except TypeError as e:
+        seed = int(time.time())+seed_offset
+        print("TypeError: %s" % e)
+        print("Current time is used as seed")
+    except ValueError as e:
+        seed = int(time.time())+seed_offset
+        print("ValueError: %s" % e)
+        print("Current time is used as seed")
+    
+    np.random.seed(seed)
+    return seed
 
 def seed_to_store(seed):
     if seed is None:
@@ -278,10 +282,6 @@ def main():
     }
 
     vsp, stwa, Time = noise(5, mode, 600, 2, seed=1000)
-    
-    for i in range(1, len(stwa)):
-        if (abs(stwa[i] - stwa[i-1]) > 20):
-            print("%s. stwa[i]: %s stwa[-1]: %s diff: %s" % (i, stwa[i], stwa[i-1], abs(stwa[i] - stwa[i-1])))
     
     # 6. (plot)
     plt.figure()
