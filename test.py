@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from perlin_2d import *
 
 
-def plot_noise(noise, label, color="blue"):
+def plot_noise(noise, label="", color="blue"):
     Time = np.linspace(0, len(noise), len(noise))
     plt.plot(Time, noise, color=color)
     plt.title(label)
@@ -53,32 +53,44 @@ perlin_2D = Perlin_2D()
 transform = Transform()
 
 # 1.
-noise = perlin_2D.noise(500, 0.01, 2, seed=1010)
+start = time.time()
+
+noise = perlin_2D.noise(100, 0.1, 1, skip_factor=1, seed=1010)
+end = time.time()
+print(end - start)
+print(len(noise))
 vsp1 = noise[0]
 stwa = transform.scale_noise(noise[-1], 600)
 
-noise = perlin_2D.noise(500, 0.01, 2, seed=23652)
-vsp2 = noise[0]
+# noise = perlin_2D.noise(500, 0.01, 2, skip_factor=1, seed=23652)
+# vsp2 = noise[0]
 
-# 2.
-scaled_vsp1 = transform.scale_to_range(vsp1, (mode["highway"][0][0], mode["highway"][0][1]))
-scaled_vsp2 = transform.scale_to_range(vsp2, (mode["highway"][1][0], mode["highway"][1][1]))
+# # 2.
+# scaled_vsp1 = transform.scale_to_range(vsp1, (mode["highway"][0][0], mode["highway"][0][1]))
+# scaled_vsp2 = transform.scale_to_range(vsp2, (mode["highway"][1][0], mode["highway"][1][1]))
 
-distr_vsp = transform.transition_from_signal_to_another(scaled_vsp1, scaled_vsp2, 100, mode["highway"][0][2])
+# distr_vsp = transform.transition_from_signal_to_another(scaled_vsp1, scaled_vsp2, 100, mode["highway"][0][2])
 
-# 3.
-stwa = transform.limit_stwa_by_vsp(stwa, distr_vsp)
+# # 3.
+# stwa = transform.limit_stwa_by_vsp(stwa, distr_vsp)
 
-# 4.    
-limited_vsp  = transform.rate_limit_signal(distr_vsp, 5, 1)
-limited_stwa = transform.rate_limit_signal(stwa, 20, 1)
+# # 4.    
+# limited_vsp  = transform.rate_limit_signal(distr_vsp, 5, 1)
+# limited_stwa = transform.rate_limit_signal(stwa, 20, 1)
 
-# 5. (extra)
-ramped_vsp  = transform.ramp_from_and_to_zero(limited_vsp, 5, 1)
-ramped_stwa = transform.ramp_from_and_to_zero(limited_stwa, 20, 1)
+# # 5. (extra)
+# ramped_vsp  = transform.ramp_from_and_to_zero(limited_vsp, 5, 1)
+# ramped_stwa = transform.ramp_from_and_to_zero(limited_stwa, 20, 1)
 
-extended_vsp  = transform.extend_signal(ramped_vsp, 10000)
-extended_stwa = transform.extend_signal(ramped_stwa, 10000)
+# extended_vsp  = transform.extend_signal(ramped_vsp, 10000)
+# extended_stwa = transform.extend_signal(ramped_stwa, 10000)
+
+Time = np.linspace(0, 5*60, 500)
+plot_noise(stwa)
+plot_noise(numderive(stwa, Time))
+plt.imshow(noise, cmap='gray')
+plt.title("Perlin-zaj")
+plt.show()
 
 # speed = np.linspace(0, 200, 100)
 # angle = 0.5+np.exp((1-speed/50)*2)*100
@@ -90,7 +102,7 @@ extended_stwa = transform.extend_signal(ramped_stwa, 10000)
 # plt.show()
 
 # plot_noise(vsp1, "")
-noise_distribution(distr_vsp*2, "Módosított Perlin-zaj eloszlása", 11)
+# noise_distribution(distr_vsp*2, "Módosított Perlin-zaj eloszlása", 11)
 # bins=9
 # seed=1010
 # noise=vsp1*4
