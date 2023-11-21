@@ -1,15 +1,23 @@
 import numpy as np
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt     # only needed for debug/visualization
 import time
-import os
-import scipy.io as matio
+import os                   		# only needed for export
+import scipy.io as matio    		# only needed for export
 
 # Octaves and test length are directly proportional to step size in terms of stwa asp results (2*test_length --> 2*step size, +2 octave --> 2*step size) (step size / 2 in my implementation)
 
 # TODO:
-#   -> limit stwa after extending it because sampling frequency? (vsp should be fine)
 #   -> merge 1D and 2D perlin?
 #   -> numpy.random.seed() is legacy, replacement?
+#   -> user interface improvement
+#   -> auto test length, stepsize, frequency, octave adjustment (by predefined stwa freq? user inputted stwa freq?) (test length or stepsize to adjust?)
+#   -> implement seed offset
+#   -> get script ready for integration
+#   -> scale_noise function, is *2 necessary? probably not
+#   -> add function that checks for min max values in scale_to_range
+#   -> delete ramp function (also extend_signal?) as framework already does it
+
+#   -> replace stwa limitation by vsp with ?
 
 # Steering wheel angle and vehicle speed relation
 # https://www.researchgate.net/figure/Steering-wheel-angle-limit-as-a-function-of-vehicle-speed_fig3_224266032
@@ -42,7 +50,7 @@ class Perlin_2D():
 
         xf = self.fade(xd)
         yf = self.fade(yd)
-        
+
         a = self.interpolate(p00, p10, yf)
         b = self.interpolate(p01, p11, yf)
         return self.interpolate(a, b, xf)
@@ -57,7 +65,7 @@ class Perlin_2D():
 
     def generate_noise(self, width, step, skip_factor):
         noise = np.empty((int(width/skip_factor), width))
-    
+
         for y in range(width):
             if y%skip_factor == 0:
                 for x in range(width):
@@ -177,38 +185,37 @@ class Transform():      # rename
         return limited
 
     def get_stwa_from_vsp(self, vsp):
-        # speed = np.linspace(0, 4, 100)*50
-        # angle = np.exp((1-speed)*2)*100+10     # geogebra
-        # cut off at Endpos?
-        return np.exp((1-vsp/50)*2)*100+10
+        return np.exp((1-vsp/50)*2)*100+30
     
-    def ramp_from_and_to_zero(self, signal, rate_limit, sampling_rate):
+    def ramp_function(self, signal, rate_limit, sampling_rate):
         ramp_start = [0]
-        
+
         for i in range(1, len(signal)):
             if abs((signal[i] - ramp_start[-1]) / sampling_rate) < rate_limit:
                 break
             ramp_start.append(self.rate_limit_value(signal[i], ramp_start[-1], rate_limit, sampling_rate))
-        
+
         for i in range(len(ramp_start), len(signal)):
             ramp_start.append(signal[i])
         
         flipped = np.flip(ramp_start)
 
         ramp_end = [0]
-
+        
         for i in range(1, len(flipped)):
             if abs((flipped[i] - ramp_end[-1]) / sampling_rate) < rate_limit:
                 break
             ramp_end.append(self.rate_limit_value(flipped[i], ramp_end[-1], rate_limit, sampling_rate))
-
+        
         for i in range(len(ramp_end), len(flipped)):
             ramp_end.append(flipped[i])
-
-        return np.flip(ramp_end) 
+        
+        return np.flip(ramp_end)
 
 
 def noise(test_length, mode_array, mode, Endpos, octaves=2, seed=None, filename="export"):
+    path = ''
+
     perlin    = Perlin_2D()
     transform = Transform()
     
@@ -218,38 +225,41 @@ def noise(test_length, mode_array, mode, Endpos, octaves=2, seed=None, filename=
     seed = set_seed(seed)
     
     # 1.
-    noise = perlin.noise(perlin_length, 0.0125, octaves, skip_factor=500, seed=seed)
-    vsp1 = noise[0]
-    vsp2 = noise[1]
-    stwa = transform.scale_noise(noise[2], Endpos)
+    # Temporary: Two different noises for proper amplitude, asp setting
+    noise1 = perlin.noise(perlin_length, 0.005, octaves, skip_factor=500, seed=seed)
+    noise2 = perlin.noise(perlin_length, 0.015, octaves, skip_factor=500, seed=seed)
+    vsp1 = noise1[0]
+    vsp2 = noise1[1]
+    stwa = transform.scale_noise(noise2[2], Endpos)
     
-    # 2.    # TODO: add check for max, min value
+    # 2.
     scaled_vsp1 = transform.scale_to_range(vsp1, mode_array[mode][0][0], mode_array[mode][0][1])
     scaled_vsp2 = transform.scale_to_range(vsp2, mode_array[mode][1][0], mode_array[mode][1][1])
     
     distr_vsp = transform.transition_from_signal_to_another(scaled_vsp1, scaled_vsp2, 100, mode_array[mode][0][2])
     
-    ramped_vsp = transform.ramp_from_and_to_zero(distr_vsp, 10, test_length/perlin_length)
+    ramped_vsp = transform.ramp_function(distr_vsp, 10, test_length/perlin_length)
+    
     # 3.
     limited_by_vsp_stwa = transform.limit_stwa_by_vsp(stwa, distr_vsp)
     
     Time = np.linspace(0, test_length, len(ramped_vsp))
-    ramped_stwa = transform.ramp_from_and_to_zero(limited_by_vsp_stwa, max(abs(numderive(limited_by_vsp_stwa, Time))), test_length/perlin_length)
-    
-    # 4.
-    limited_vsp = transform.rate_limit_signal(ramped_vsp, 10, test_length/perlin_length)
+    ramped_stwa = transform.ramp_function(limited_by_vsp_stwa, max(abs(numderive(limited_by_vsp_stwa, Time))), test_length/perlin_length)
+
+    # 4.    
+    limited_vsp  = transform.rate_limit_signal(ramped_vsp, 10, test_length/perlin_length)
     limited_stwa = transform.rate_limit_signal(ramped_stwa, 800, test_length/perlin_length)
     
     # 6.
-    extended_vsp  = transform.extend_signal(ramped_vsp, 10000)
-    extended_stwa = transform.extend_signal(ramped_stwa, 10000)
+    extended_vsp  = transform.extend_signal(limited_vsp, 10000)
+    extended_stwa = transform.extend_signal(limited_stwa, 10000)
     
     Time = np.linspace(0, test_length, len(limited_vsp))
     
     filename = filename + mode + "_" + str(octaves) + "_" + str(Endpos) + "_" + str(mode_array[mode][0][0]) + str(mode_array[mode][0][1]) + "_" + str(mode_array[mode][0][2]) + "_" + str(mode_array[mode][1][0]) + str(mode_array[mode][1][1]) + "_" + str(seed) + ".mat"
-    # export_to_mat(limited_vsp, limited_stwa, stwa, distr_vsp, Time, filename=filename)
+    # export_to_mat(limited_vsp, limited_stwa, stwa, distr_vsp, Time, path, filename=filename)
     
-    return limited_vsp, limited_stwa, stwa, Time
+    return limited_vsp, limited_stwa, stwa, distr_vsp, Time
 
 def set_seed(seed):
     # Note: python 2 and python 3 time.time() differs in precision
@@ -260,40 +270,37 @@ def set_seed(seed):
     try:
         np.random.seed(seed)
     except TypeError as e:
-        # seed = int(time.time())+seed_offset
         seed = int(time.time())
         print("TypeError: %s" % e)
         print("Current time is used as seed")
     except ValueError as e:
-        # seed = int(time.time())+seed_offset
         seed = int(time.time())
         print("ValueError: %s" % e)
         print("Current time is used as seed")
-    
+
     np.random.seed(seed)
     return seed
 
-def export_to_mat(vsp, stwa, Time, filename = ""):
-    path = r'c:\Users\dud\Desktop' + os.sep + filename
+def export_to_mat(vsp, stwa, raw_stwa, raw_vsp, Time, path, filename=''):
+    f = path + os.sep + filename
 
-    export_dict = {}
-    export_dict["VSP"] = vsp
-    export_dict["STWA"] = stwa
-    export_dict["raw_STWA"] = raw_stwa
-    export_dict["raw_VSP"] = raw_vsp
-    export_dict["Time"] = Time
+    export_dict = {
+        "VSP": vsp,
+        "STWA": stwa,
+        "raw_STWA": raw_stwa,
+        "raw_VSP": raw_vsp,
+        "Time": Time
+    }
 
-    matio.savemat(path, export_dict)
-    print(path)
+    matio.savemat(f, export_dict)
 
 def numderive(y_values, x_values):
     ''' Calculate differential signal as diff(y)/diff(x) '''
     x_values = np.array(x_values)
     y_values = np.array(y_values)
     derivate = np.diff(y_values) / np.asarray( np.diff(x_values), float)
-    derivate = np.append(derivate, derivate[-1])        # array size compensation due to diff
-    return derivate 
-
+    derivate = np.append(derivate, derivate[-1])       # array size compensation due to diff
+    return derivate
 
 def main():
     mode_array = {
@@ -301,10 +308,6 @@ def main():
             [0, 20, 0.8],
             [10, 35, 0.2]
         ],
-        # "city": [
-            # [15, 70, 0.7],
-            # [0, 40, 0.3]
-        # ],
         "city": [       # 5000, 5m, 0.025, 200 deg, 1 octave   ---> target 250-300 deg/s
             [50, 70, 0.7],
             [15, 40, 0.3]
@@ -319,15 +322,25 @@ def main():
         ]
     }
 
-    vsp, stwa, raw_stwa, Time = noise(test_length=5, mode_array=mode_array, mode="rural", Endpos=150, octaves=3, filename="")
-    
-    # t = Transform()
+    vsp, stwa, raw_stwa, raw_vsp, Time = noise(test_length=3, mode_array=mode_array, mode="city_driving", Endpos=100, octaves=2, filename="")
     
     # print(t.get_stwa_from_vsp(120))
     # print(max(numderive(stwa, Time)))
     
+    t = Transform()
+    speed = np.linspace(0, 200, 200)
+    angle = []
+    for i in range(len(speed)):
+        angle.append(t.get_stwa_from_vsp(speed[i]))
+    plt.plot(speed, angle)
+    plt.ylim(-20, 800)
+    plt.xlabel("Járműsebesség [km/h]")
+    plt.ylabel("Kormányszög [fok]")
+    plt.title("Kormányszög limitálás járműsebesség alapján")
+    plt.show()
+    
     # speed = np.linspace(0, 4, 100)
-    # angle = np.exp((1-speed)*2)*100+10    # geogebra
+    # angle = np.exp((1-speed)*2)*100+15    # geogebra
     # plt.figure()
     # plt.plot(speed*50, angle)
     # plt.show()
@@ -339,7 +352,6 @@ def main():
     
     plt.figure()
     plt.plot(Time, stwa, label="stwa")
-    # plt.plot(Time, raw_stwa)
     plt.legend()
     
     plt.show()
@@ -352,25 +364,27 @@ if __name__ == "__main__":
 # def GetLookupDatabase(path):
     # if not os.path.exists(path):
         # raise Exception("%s does NOT exists!" % path)
-
+        
     # vars = matio.loadmat(path)
     # for var, value in vars.items():
         # try:
             # if len(value) == 1:
-                # vars[var] = value[0]
-            # else:   vars[var] = value.flatten()   # flatten nested array structures
+                    # vars[var] = value[0]
+            # else:   vars[var] = value.flatten()   # flatten nested array structures
         # except: pass
-
+    
     # return vars
 
-# path = r"\\d1wficdc09.europe.prestagroup.com\HOME\Active\Budapest\students\marcell.mikes\Desktop\reference\parking_1_600_020_0.8_1035_1684926392.mat"
+# path = r""
 # database = GetLookupDatabase(path=path)
+
 # print(database)
 
 # Time = database["Time"]
 # Angle = database["STWA"]
-# Vsp = database["VSP"]   # plt.plot(Time, Angle)
+# Vsp = database["VSP"]
 
+# plt.plot(Time, Angle)
 # plt.figure()
 # plt.plot(Time, Vsp)
 # plt.show()
